@@ -1,0 +1,76 @@
+name: Build
+
+# Every push and pull request: test and build on Windows and macOS, downloadable from the run's Artifacts.
+# Pushing a tag like v2.0.0 also publishes the builds as a GitHub Release.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+          - name: macos-arm64
+            os: macos-latest
+          - name: macos-intel
+            os: macos-15-intel
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --locked
+
+      - name: Test
+        run: uv run pytest -q
+
+      - name: Build
+        run: uv run pyinstaller packaging/lparc_photo.spec --noconfirm
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        # ditto keeps the bundle's symlinks and ad-hoc signature intact; plain zip breaks them.
+        run: ditto -c -k --keepParent "dist/LPARC Photo.app" "LPARC-Photo-${{ matrix.name }}.zip"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "dist/LPARC Photo" -DestinationPath "LPARC-Photo-${{ matrix.name }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LPARC-Photo-${{ matrix.name }}
+          path: LPARC-Photo-${{ matrix.name }}.zip
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: LPARC-Photo-*.zip
+          generate_release_notes: true

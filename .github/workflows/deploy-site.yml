@@ -1,0 +1,85 @@
+name: Deploy site
+
+# Builds the download page (site/) into an nginx image, pushes it to GHCR and asks Dokploy to run it.
+# The installers are not in the image: the page links to the latest GitHub Release.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/deploy-site.yml"
+      - ".github/scripts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-site
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/lparc-photo-site
+      SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SHA }}
+          persist-credentials: false
+      - name: Test deploy helper
+        run: bash .github/scripts/dokploy-deploy.test.sh
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: site
+          file: site/Dockerfile
+          platforms: linux/amd64
+          push: true
+          load: false
+          build-args: GIT_SHA=${{ env.SHA }}
+          tags: ${{ env.IMAGE }}:${{ env.SHA }}
+      - name: Smoke-test the image
+        run: |
+          docker run -d --rm --name site -p 8080:8080 "$IMAGE:$SHA"
+          for attempt in $(seq 1 20); do curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1 && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8080/ | grep -q "LPARC Photo"
+          curl -fsS http://127.0.0.1:8080/version.json | grep -q "$SHA"
+          for path in windows mac mac-intel; do
+            curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "http://127.0.0.1:8080/download/$path" | grep -q '^302 https://github.com/kkonkobo/lparc-photo/releases/latest/download/LPARC-Photo-'
+          done
+          docker stop site
+      - name: Request deployment
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          # The panel hostname is behind Cloudflare's proxy, which challenges GitHub runners.
+          DOKPLOY_ORIGIN_IP: ${{ vars.DOKPLOY_ORIGIN_IP }}
+          APPLICATION_ID: ${{ vars.DOKPLOY_APP_ID }}
+        run: bash .github/scripts/dokploy-deploy.sh "$APPLICATION_ID" "$IMAGE:$SHA"
+      - name: Wait for the new version to be live
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          test -n "$SITE_URL"
+          [[ "$SITE_URL" == https://* ]]
+          for attempt in $(seq 1 36); do
+            if curl --fail --silent --connect-timeout 5 --max-time 10 "$SITE_URL/version.json" | grep -q "$SHA"; then
+              echo "Live: $SITE_URL serves $SHA"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "The site did not serve $SHA within 3 minutes." >&2
+          exit 1
