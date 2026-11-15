@@ -71,15 +71,25 @@ jobs:
       - name: Wait for the new version to be live
         env:
           SITE_URL: ${{ vars.SITE_URL }}
+          ORIGIN_IP: ${{ vars.DOKPLOY_ORIGIN_IP }}
         run: |
           test -n "$SITE_URL"
           [[ "$SITE_URL" == https://* ]]
+          # When the site's DNS record is proxied by Cloudflare, runners get challenged. Go straight to the
+          # server instead; TLS is still verified against the site's hostname.
+          resolve=()
+          if [[ -n "$ORIGIN_IP" ]]; then
+            host=${SITE_URL#https://}
+            resolve=(--resolve "${host%%/*}:443:$ORIGIN_IP")
+          fi
           for attempt in $(seq 1 36); do
-            if curl --fail --silent --connect-timeout 5 --max-time 10 "$SITE_URL/version.json" | grep -q "$SHA"; then
+            status=$(curl --silent --connect-timeout 5 --max-time 10 ${resolve[@]+"${resolve[@]}"} \
+              --output version.json --write-out '%{http_code}' "$SITE_URL/version.json" || true)
+            if [[ "$status" == 200 ]] && grep -q "$SHA" version.json; then
               echo "Live: $SITE_URL serves $SHA"
               exit 0
             fi
             sleep 5
           done
-          echo "The site did not serve $SHA within 3 minutes." >&2
+          echo "The site did not serve $SHA within 3 minutes. Last HTTP status: ${status:-none}; body starts: $(head -c 120 version.json 2>/dev/null | tr -d '\n')" >&2
           exit 1
