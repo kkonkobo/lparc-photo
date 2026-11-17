@@ -74,4 +74,16 @@ Signing needs an Apple Developer account (macOS) and a code-signing certificate 
 never change. `.github/workflows/deploy-site.yml` rebuilds and redeploys it whenever `site/` changes on `main`.
 
 Releasing a new version of the app: bump `__version__` in `src/lparc_photo/__init__.py` and `version` in
-`pyproject.toml`, then push a tag such as `v2.1.0`. The site picks the new release up by itself.
+`pyproject.toml`, then push a tag such as `v2.3.0`. The site picks the new release up by itself.
+
+## Installing and updating
+
+- **Windows**: `LPARC-Photo-windows-x64-setup.exe` installs for the current user (no administrator rights needed),
+  with Start-menu and desktop shortcuts. Running a newer installer upgrades the existing install in place; settings
+  and photos are kept. The `.zip` is a portable copy that needs no installation. The installer is built with
+  [Inno Setup](https://jrsoftware.org/isinfo.php) from `packaging/installer.iss`; the build pipeline installs it,
+  runs the installed app's self-test, upgrades it and uninstalls it.
+- **macOS**: drag the new app into *Applications* and replace the old one.
+- **Update notice**: at start-up the app asks `https://lparc-photo.yibe.studio/latest` which version is newest and
+  shows a *Télécharger* banner when it is newer than the running one. It sends nothing but that request, stays
+  silent when offline, and can be turned off under *Mises à jour*.

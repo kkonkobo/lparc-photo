@@ -223,3 +223,24 @@ def test_zoom_control_adjusts_automatic_framing(window):
     assert window.crop.h < normal
     window.auto_check.setChecked(False)
     assert (window.zoom_slider.minimum(), window.zoom_slider.maximum()) == (100, 400)
+
+
+def test_update_banner_appears_only_when_told(window):
+    assert window.update_banner.isHidden()
+    window._on_update_available("9.9.9")
+    assert not window.update_banner.isHidden() and "9.9.9" in window.update_text.text()
+
+
+def test_update_check_can_be_turned_off(window, monkeypatch):
+    calls = []
+    monkeypatch.setattr(window.updates, "check", lambda: calls.append(1))
+    monkeypatch.setattr(window, "_populate_cameras", lambda: None)
+    monkeypatch.setattr(window, "_show_permission_denied", lambda: None)
+    monkeypatch.setattr(window, "_show_message", lambda *a, **k: None)
+    monkeypatch.setattr(app_module.QApplication.instance(), "requestPermission", lambda *a, **k: None, raising=False)
+    window.update_check.setChecked(False)
+    window.start()
+    assert calls == []
+    window.update_check.setChecked(True)
+    window.start()
+    assert calls == [1]

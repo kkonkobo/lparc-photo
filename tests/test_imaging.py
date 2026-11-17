@@ -111,11 +111,11 @@ def test_foreground_estimate_removes_old_background_tint():
     assert naive_redness > 100 and cleaned_redness < naive_redness * 0.25
 
 
-def test_self_test_passes(tmp_path):
+def test_self_test_passes(tmp_path, qapp):
     report = tmp_path / "report.json"
     assert selftest.run(str(PORTRAIT), str(report)) == 0
     data = json.loads(report.read_text())
-    assert data["ok"] and data["face_found"] and "error" not in data
+    assert data["ok"] and data["face_found"] and data["tls"] and "error" not in data
 
 
 def test_self_test_reports_failure(tmp_path):
