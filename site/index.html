@@ -50,6 +50,7 @@
   .btn small { display: block; font-size: 12.5px; opacity: .8; line-height: 1.3; }
   .meta { margin-top: 18px; font-size: 14px; color: var(--muted); min-height: 22px; }
   .meta a { color: var(--muted); }
+  .meta.alt { margin-top: 4px; font-size: 13px; min-height: 0; }
 
   .shot { margin: 24px 0 72px; }
   .shot img {
@@ -78,6 +79,8 @@
   .install ol { margin: 0; padding-left: 20px; color: var(--muted); font-size: 15px; }
   .install li { margin: 6px 0; }
   .install li b, .install li i { color: var(--text); font-style: normal; font-weight: 600; }
+  .install .update { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+  .install .update b, .install .update i { color: var(--text); font-style: normal; font-weight: 600; }
   .note { margin: 0 0 22px; color: var(--muted); font-size: 15px; max-width: 760px; }
 
   footer { border-top: 1px solid var(--line); padding: 26px 0 40px; color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 8px 20px; }
@@ -102,7 +105,7 @@
       <div class="buttons">
         <a class="btn" id="dl-windows" href="/download/windows">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5 10.5 4.4v7.1H3zm8.5-1.2L21 3v8.5h-9.5zM3 12.5h7.5v7.1L3 18.5zm8.5 0H21V21l-9.5-1.3z"/></svg>
-          <span><b>Télécharger pour Windows</b><small>Windows 10 et 11 · 64 bits</small></span>
+          <span><b>Télécharger pour Windows</b><small>Installateur · Windows 10 et 11 · 64 bits</small></span>
         </a>
         <a class="btn" id="dl-mac" href="/download/mac">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14a1 1 0 0 1 1 1v9H4V6a1 1 0 0 1 1-1zM2 17h20v1a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/></svg>
@@ -114,6 +117,7 @@
         </a>
       </div>
       <p class="meta" id="meta"></p>
+      <p class="meta alt">Installation impossible sur votre PC ? <a href="/download/windows-portable">Version portable pour Windows (.zip)</a>, sans installation.</p>
     </section>
 
     <div class="shot">
@@ -151,24 +155,27 @@
     </div>
 
     <h2>Installation</h2>
-    <p class="note">L'application n'est pas signée par un certificat payant : Windows et macOS affichent un avertissement au premier lancement. Voici comment le passer.</p>
+    <p class="note">L'application n'est pas signée par un certificat payant : Windows et macOS affichent un avertissement au premier lancement. Voici comment le passer. Une fois installée, elle vous prévient quand une nouvelle version est disponible.</p>
     <div class="install">
       <div class="card">
         <h3>Windows</h3>
         <ol>
-          <li>Décompressez le fichier téléchargé (clic droit, <i>Extraire tout</i>).</li>
-          <li>Ouvrez le dossier <i>LPARC Photo</i> et lancez <b>LPARC Photo.exe</b>.</li>
+          <li>Lancez le fichier téléchargé, <b>LPARC-Photo-windows-x64-setup.exe</b>.</li>
           <li>Si <i>Windows a protégé votre ordinateur</i> s'affiche : <b>Informations complémentaires</b>, puis <b>Exécuter quand même</b>.</li>
+          <li>Suivez les étapes. Aucun mot de passe administrateur n'est nécessaire.</li>
+          <li>Ouvrez <b>LPARC Photo</b> depuis le menu Démarrer ou le Bureau.</li>
         </ol>
+        <p class="update"><b>Mise à jour :</b> lancez simplement le nouvel installateur. Il remplace l'ancienne version ; vos réglages et vos photos sont conservés.</p>
       </div>
       <div class="card">
         <h3>macOS</h3>
         <ol>
           <li>Ouvrez le fichier téléchargé, puis glissez <b>LPARC Photo</b> dans <i>Applications</i>.</li>
-          <li>Faites un clic droit sur l'application, <b>Ouvrir</b>, puis <b>Ouvrir</b> à nouveau.</li>
-          <li>Si macOS refuse : <i>Réglages Système › Confidentialité et sécurité</i>, puis <b>Ouvrir quand même</b>.</li>
+          <li>Ouvrez l'application une première fois : macOS la bloque.</li>
+          <li>Allez dans <i>Réglages Système › Confidentialité et sécurité</i>, puis cliquez <b>Ouvrir quand même</b>. Sur macOS 14 ou plus ancien, un clic droit sur l'application puis <b>Ouvrir</b> suffit.</li>
           <li>Autorisez l'accès à la caméra quand macOS le demande.</li>
         </ol>
+        <p class="update"><b>Mise à jour :</b> glissez la nouvelle version dans <i>Applications</i> et remplacez l'ancienne.</p>
       </div>
     </div>
   </main>
@@ -205,7 +212,7 @@
       link.href = release.html_url;
       link.textContent = "notes de version";
       meta.appendChild(link);
-      [["dl-windows", "LPARC-Photo-windows-x64.zip"], ["dl-mac", "LPARC-Photo-macos-arm64.zip"], ["dl-mac-intel", "LPARC-Photo-macos-intel.zip"]]
+      [["dl-windows", "LPARC-Photo-windows-x64-setup.exe"], ["dl-mac", "LPARC-Photo-macos-arm64.zip"], ["dl-mac-intel", "LPARC-Photo-macos-intel.zip"]]
         .forEach(function (pair) {
           var small = document.querySelector("#" + pair[0] + " small");
           if (sizes[pair[1]]) small.textContent += " · " + sizes[pair[1]];
