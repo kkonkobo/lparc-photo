@@ -56,6 +56,10 @@ jobs:
           for attempt in $(seq 1 20); do curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1 && break; sleep 1; done
           curl -fsS http://127.0.0.1:8080/ | grep -q "LPARC Photo"
           curl -fsS http://127.0.0.1:8080/version.json | grep -q "$SHA"
+          # every image address carries this build's version, and still resolves
+          curl -fsS http://127.0.0.1:8080/ | grep -q "/assets/screenshot.jpg?v=$SHA"
+          test "$(curl -fsS http://127.0.0.1:8080/ | grep -o '/assets/[A-Za-z0-9._-]*' | sort -u | wc -l)" -ge 5
+          curl -fsS -o /dev/null "http://127.0.0.1:8080/assets/screenshot.jpg?v=$SHA"
           for path in windows mac mac-intel; do
             curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "http://127.0.0.1:8080/download/$path" | grep -q '^302 https://github.com/kkonkobo/lparc-photo/releases/latest/download/LPARC-Photo-'
           done
