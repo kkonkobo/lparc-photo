@@ -2,6 +2,7 @@
 # One-folder build (fast start-up). macOS gets a .app bundle, Windows a folder with "LPARC Photo.exe".
 
 import os
+import platform
 import re
 import sys
 
@@ -29,8 +30,9 @@ UNUSED = re.compile(r"Qt6?(Pdf|Quick|Qml|VirtualKeyboard)|qpdf|platforminputcont
 a.binaries = [b for b in a.binaries if not UNUSED.search(b[0])]
 a.datas = [d for d in a.datas if not UNUSED.search(d[0])]
 
-if sys.platform == "darwin":
+if sys.platform == "darwin" and platform.machine() == "arm64":
     # onnxruntime's Python binding is self-contained here; the wheel's separate C library (34 MB) is never loaded.
+    # Checked with otool on the Apple Silicon wheel only, so Intel keeps the library.
     a.binaries = [b for b in a.binaries if not re.search(r"libonnxruntime\.[\d.]+\.dylib$", b[0])]
 
 pyz = PYZ(a.pure)
