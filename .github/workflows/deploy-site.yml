@@ -60,9 +60,10 @@ jobs:
           curl -fsS http://127.0.0.1:8080/ | grep -q "/assets/screenshot.jpg?v=$SHA"
           test "$(curl -fsS http://127.0.0.1:8080/ | grep -o '/assets/[A-Za-z0-9._-]*' | sort -u | wc -l)" -ge 5
           curl -fsS -o /dev/null "http://127.0.0.1:8080/assets/screenshot.jpg?v=$SHA"
-          for path in windows mac mac-intel; do
+          for path in windows windows-portable mac mac-intel; do
             curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "http://127.0.0.1:8080/download/$path" | grep -q '^302 https://github.com/kkonkobo/lparc-photo/releases/latest/download/LPARC-Photo-'
           done
+          curl -sS -o /dev/null -w '%{redirect_url}\n' http://127.0.0.1:8080/download/windows | grep -q 'setup\.exe$'
           curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' http://127.0.0.1:8080/latest | grep -q '^302 https://github.com/kkonkobo/lparc-photo/releases/latest$'
           docker stop site
       - name: Request deployment
