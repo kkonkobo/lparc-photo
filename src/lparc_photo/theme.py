@@ -47,6 +47,10 @@ QPushButton#capture { background: #4f8cff; color: white; border: none; font-size
 QPushButton#capture:hover { background: #6a9dff; }
 QPushButton#capture:pressed { background: #3f74d9; }
 QPushButton#capture:disabled { background: #2a3445; color: #7d8794; }
+QPushButton#swatch { background: #242932; border: 1px solid #323843; padding: 7px 10px; font-weight: 500; text-align: left; }
+QPushButton#swatch:hover { background: #2c323c; }
+QPushButton#swatch:checked { background: #22304a; border-color: #4f8cff; color: white; }
+QPushButton#swatch:disabled { color: #6b7280; }
 QPushButton#link { background: transparent; border: none; color: #8fb3ff; padding: 2px 4px; font-weight: 500; }
 QPushButton#link:hover { color: #b5ccff; }
 

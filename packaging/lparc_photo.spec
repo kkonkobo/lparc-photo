@@ -2,14 +2,14 @@
 # One-folder build (fast start-up). macOS gets a .app bundle, Windows a folder with "LPARC Photo.exe".
 
 import os
+import platform
 import re
 import sys
-
-import cv2
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 SRC = os.path.join(ROOT, "src")
 ASSETS = os.path.join(SRC, "lparc_photo", "assets")
+MODELS = os.path.join(SRC, "lparc_photo", "models")  # face detector, background matting, their licences
 with open(os.path.join(SRC, "lparc_photo", "__init__.py"), encoding="utf-8") as f:
     VERSION = re.search(r'__version__ = "([^"]+)"', f.read()).group(1)
 
@@ -18,7 +18,7 @@ a = Analysis(
     pathex=[SRC],
     datas=[
         (ASSETS, "lparc_photo/assets"),
-        (os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml"), "cv2/data"),
+        (MODELS, "lparc_photo/models"),
     ],
     excludes=["tkinter", "matplotlib", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtWebEngineCore",
               "PySide6.QtPdf", "PySide6.Qt3DCore", "PySide6.QtCharts", "PySide6.QtDataVisualization"],
@@ -29,6 +29,11 @@ a = Analysis(
 UNUSED = re.compile(r"Qt6?(Pdf|Quick|Qml|VirtualKeyboard)|qpdf|platforminputcontexts|qtvirtualkeyboard", re.IGNORECASE)
 a.binaries = [b for b in a.binaries if not UNUSED.search(b[0])]
 a.datas = [d for d in a.datas if not UNUSED.search(d[0])]
+
+if sys.platform == "darwin" and platform.machine() == "arm64":
+    # onnxruntime's Python binding is self-contained here; the wheel's separate C library (34 MB) is never loaded.
+    # Checked with otool on the Apple Silicon wheel only, so Intel keeps the library.
+    a.binaries = [b for b in a.binaries if not re.search(r"libonnxruntime\.[\d.]+\.dylib$", b[0])]
 
 pyz = PYZ(a.pure)
 

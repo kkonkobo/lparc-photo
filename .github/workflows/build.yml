@@ -44,6 +44,25 @@ jobs:
       - name: Build
         run: uv run pyinstaller packaging/lparc_photo.spec --noconfirm
 
+      # Runs the packaged app itself, without a window or camera: finds a face in a test portrait and
+      # replaces its background. Catches anything the bundle is missing on this platform.
+      - name: Self-test the packaged app (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          "dist/LPARC Photo.app/Contents/MacOS/LPARC Photo" --self-test tests/data/portrait.jpg selftest.json || status=$?
+          cat selftest.json
+          exit ${status:-0}
+
+      - name: Self-test the packaged app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # A windowed app has no console, so wait for it explicitly and read its report file.
+          $p = Start-Process -FilePath "dist/LPARC Photo/LPARC Photo.exe" -WorkingDirectory $PWD `
+            -ArgumentList '--self-test', 'tests/data/portrait.jpg', 'selftest.json' -Wait -PassThru
+          if (Test-Path selftest.json) { Get-Content selftest.json } else { Write-Host "no report written" }
+          exit $p.ExitCode
+
       - name: Package (macOS)
         if: runner.os == 'macOS'
         # ditto keeps the bundle's symlinks and ad-hoc signature intact; plain zip breaks them.

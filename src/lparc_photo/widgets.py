@@ -1,8 +1,17 @@
 """Stage widgets: live preview with framing overlay, review screen, empty states, toast."""
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor, QFont, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .imaging import QualityReport, Rect
 from .presets import OutputSize
@@ -99,8 +108,8 @@ class CameraView(QWidget):
             p.setPen(QPen(QColor(255, 255, 255, 230), 2))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRect(crop)
-            guide = QRectF(0, 0, crop.width() * 0.6, crop.height() * 0.66)
-            guide.moveCenter(QPointF(crop.center().x(), crop.y() + crop.height() * 0.47))
+            guide = QRectF(0, 0, crop.width() * 0.54, crop.height() * 0.56)
+            guide.moveCenter(QPointF(crop.center().x(), crop.y() + crop.height() * 0.48))
             pen = QPen(OK if self.face_locked else QColor(255, 255, 255, 150), 2, Qt.PenStyle.DashLine)
             p.setPen(pen)
             p.drawEllipse(guide)
@@ -169,6 +178,65 @@ class ImageFit(QWidget):
         p.drawRect(target)
 
 
+BACKGROUNDS = (("original", "Original"), ("white", "Blanc"), ("blue", "Bleu clair"), ("custom", "Autre…"))
+
+
+def swatch_icon(colour: QColor | None) -> QIcon:
+    """A colour dot; None draws the "keep the real background" symbol."""
+    size = 32
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    disc = QRectF(3, 3, size - 6, size - 6)
+    if colour is None:
+        p.setPen(QPen(QColor("#9aa0a6"), 2.5))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(disc)
+        p.drawLine(QPointF(9, 23), QPointF(23, 9))
+    else:
+        p.setPen(QPen(QColor(255, 255, 255, 70), 1.5))
+        p.setBrush(colour)
+        p.drawEllipse(disc)
+    p.end()
+    return QIcon(pixmap)
+
+
+class BackgroundPicker(QWidget):
+    """Original / white / light blue / custom. Emits the key the user clicked; the owner decides
+    what happens (a click on "custom" opens a colour dialog) and calls `select` to show the result."""
+
+    chosen = Signal(str)
+
+    def __init__(self, columns: int, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.group = QButtonGroup(self)
+        self.buttons: dict[str, QPushButton] = {}
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(8)
+        for i, (key, text) in enumerate(BACKGROUNDS):
+            button = QPushButton(text, objectName="swatch", checkable=True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.clicked.connect(lambda _checked, k=key: self.chosen.emit(k))
+            self.group.addButton(button)
+            self.buttons[key] = button
+            grid.addWidget(button, i // columns, i % columns)
+        self.buttons["original"].setIcon(swatch_icon(None))
+        self.buttons["white"].setIcon(swatch_icon(QColor(255, 255, 255)))
+
+    def set_colours(self, blue: tuple[int, int, int], custom: tuple[int, int, int]) -> None:
+        self.buttons["blue"].setIcon(swatch_icon(QColor(*blue)))
+        self.buttons["custom"].setIcon(swatch_icon(QColor(*custom)))
+
+    def select(self, key: str) -> None:
+        self.buttons[key].setChecked(True)
+
+    def set_replacement_enabled(self, enabled: bool) -> None:
+        for key, button in self.buttons.items():
+            button.setEnabled(enabled or key == "original")
+
+
 def chip(text: str, level: str) -> QLabel:
     label = QLabel(text)
     label.setObjectName("chip")
@@ -186,6 +254,7 @@ class ReviewView(QWidget):
         self.title = QLabel(objectName="reviewTitle", alignment=Qt.AlignmentFlag.AlignCenter)
         self.subtitle = QLabel(objectName="muted", alignment=Qt.AlignmentFlag.AlignCenter)
         self.image = ImageFit()
+        self.backgrounds = BackgroundPicker(columns=4)
         self.chips = QHBoxLayout()
         self.chips.setSpacing(8)
         retake = QPushButton("Reprendre   Échap", objectName="secondary")
@@ -214,6 +283,13 @@ class ReviewView(QWidget):
         layout.addWidget(self.title)
         layout.addWidget(self.subtitle)
         layout.addWidget(self.image, 1)
+        picker_row = QHBoxLayout()
+        picker_row.addStretch()
+        picker_row.addWidget(QLabel("Fond", objectName="muted"))
+        picker_row.addSpacing(4)
+        picker_row.addWidget(self.backgrounds)
+        picker_row.addStretch()
+        layout.addLayout(picker_row)
         layout.addLayout(chips_row)
         layout.addSpacing(4)
         layout.addLayout(buttons)
