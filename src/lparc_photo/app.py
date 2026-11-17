@@ -2,15 +2,17 @@
 
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QCameraPermission, QSettings, QSize, QStandardPaths, Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QIcon, QImage, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QImage, QKeySequence, QPixmap, QShortcut
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -33,21 +35,35 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, imaging
+from . import __version__, imaging, matting
 from .camera import Camera, qimage_to_rgb, rgb_to_qimage
-from .imaging import Rect, crop_rect, face_crop_rect, matricule_error, smooth_rect
+from .imaging import Face, QualityReport, Rect, crop_rect, face_crop_rect, matricule_error, smooth_rect
 from .presets import DEFAULT_PRESET, PRESETS, OutputSize, mm_to_px, preset_by_key, px_to_mm
 from .theme import stylesheet
-from .widgets import CameraView, MessageView, ReviewView, Toast
+from .widgets import BackgroundPicker, CameraView, MessageView, ReviewView, Toast
 
 ASSETS = Path(__file__).parent / "assets"
 DETECT_EVERY_S = 0.15
 FACE_HOLD_S = 1.0
 NO_FRAME_TIMEOUT_MS = 5000
 MAX_ZOOM = 4.0
+AUTO_ZOOM_MIN, AUTO_ZOOM_MAX = 0.7, 1.6  # how much the automatic frame can be widened or tightened
+ORIGINALS_DIR = "originaux"
 RECENT_LIMIT = 12
 
 LIVE, REVIEW, MESSAGE = range(3)
+
+
+@dataclass
+class Capture:
+    """One photo taken, before it is saved."""
+
+    matricule: str
+    pixels: np.ndarray  # the framed crop at camera resolution
+    size: OutputSize
+    report: QualityReport
+    face_found: bool | None  # None when automatic framing was off
+    alpha: np.ndarray | None = None  # the cut-out, computed once on first use
 
 
 def section(title: str) -> QLabel:
@@ -83,15 +99,18 @@ class MainWindow(QMainWindow):
 
         self.frame_size: tuple[int, int] | None = None
         self.crop: Rect | None = None
-        self.face: Rect | None = None
+        self.face: Face | None = None
         self.face_seen_at = 0.0
         self.last_detect = 0.0
         self.face_locked = False
         self.manual_center = (0.5, 0.5)
         self.zoom = 1.0
+        self.auto_zoom = 1.0
+        self.background = "original"
+        self.custom_colour: matting.Colour = (230, 230, 230)
         self.capturing = False
         self.frames_since_start = 0
-        self.pending: tuple[str, object, OutputSize] | None = None
+        self.pending: Capture | None = None
         self.output_dir = default_output_dir()
 
         self._build()
@@ -137,6 +156,12 @@ class MainWindow(QMainWindow):
         zoom_row.addWidget(self.zoom_slider, 1)
         zoom_row.addWidget(self.zoom_label)
         camera_card = card(self.camera_combo, self.camera_info, self.auto_check, zoom_row, self.framing_hint, self.mirror_check)
+
+        # Background
+        self.bg_picker = BackgroundPicker(columns=2)
+        self.keep_original_check = QCheckBox(f"Conserver aussi l'original (dossier « {ORIGINALS_DIR} »)")
+        self.bg_hint = QLabel(objectName="hint", wordWrap=True)
+        background_card = card(self.bg_picker, self.keep_original_check, self.bg_hint)
 
         # Output
         self.preset_combo = QComboBox()
@@ -214,8 +239,8 @@ class MainWindow(QMainWindow):
         side.setSpacing(8)
         side.addLayout(header)
         side.addSpacing(8)
-        for title, widget in (("Photo", photo_card), ("Caméra", camera_card), ("Format de sortie", output_card),
-                              ("Dossier d'enregistrement", folder_card)):
+        for title, widget in (("Photo", photo_card), ("Caméra", camera_card), ("Arrière-plan", background_card),
+                              ("Format de sortie", output_card), ("Dossier d'enregistrement", folder_card)):
             side.addWidget(section(title))
             side.addWidget(widget)
             side.addSpacing(6)
@@ -248,8 +273,14 @@ class MainWindow(QMainWindow):
         s = self.settings
         self.auto_check.setChecked(s.value("auto_frame", True, bool))
         self.mirror_check.setChecked(s.value("mirror", False, bool))
-        self.zoom = float(s.value("zoom", 1.0))
-        self.zoom_slider.setValue(int(self.zoom * 100))
+        self.zoom = min(MAX_ZOOM, max(1.0, float(s.value("zoom", 1.0))))
+        self.auto_zoom = min(AUTO_ZOOM_MAX, max(AUTO_ZOOM_MIN, float(s.value("auto_zoom", 1.0))))
+        custom = QColor(s.value("background_custom", "#e6e6e6"))
+        if custom.isValid():
+            self.custom_colour = (custom.red(), custom.green(), custom.blue())
+        self.keep_original_check.setChecked(s.value("keep_original", False, bool))
+        saved_background = s.value("background", "original")
+        self._apply_background(saved_background if saved_background in ("white", "blue", "custom") and matting.available() else "original")
         self.review_check.setChecked(s.value("review", True, bool))
         self.timer_combo.setCurrentIndex(max(0, self.timer_combo.findData(int(s.value("countdown", 0)))))
         self.format_combo.setCurrentIndex(max(0, self.format_combo.findData(s.value("format", "jpeg"))))
@@ -273,6 +304,10 @@ class MainWindow(QMainWindow):
         s.setValue("auto_frame", self.auto_check.isChecked())
         s.setValue("mirror", self.mirror_check.isChecked())
         s.setValue("zoom", self.zoom)
+        s.setValue("auto_zoom", self.auto_zoom)
+        s.setValue("background", self.background)
+        s.setValue("background_custom", QColor(*self.custom_colour).name())
+        s.setValue("keep_original", self.keep_original_check.isChecked())
         s.setValue("review", self.review_check.isChecked())
         s.setValue("countdown", self.timer_combo.currentData())
         s.setValue("format", self.format_combo.currentData())
@@ -298,6 +333,8 @@ class MainWindow(QMainWindow):
         self.view.wheeled.connect(self._on_wheel)
         self.review.accepted.connect(self._save_pending)
         self.review.rejected.connect(self._retake)
+        self.bg_picker.chosen.connect(self._on_background_chosen)
+        self.review.backgrounds.chosen.connect(self._on_background_chosen)
         self.capture_btn.clicked.connect(self._capture_requested)
         self.matricule.textChanged.connect(self._clear_matricule_error)
         self.auto_check.toggled.connect(self._sync_controls)
@@ -318,11 +355,15 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self, activated=self._cancel_action)
 
     def _sync_controls(self) -> None:
-        manual = not self.auto_check.isChecked()
-        self.zoom_slider.setEnabled(manual)
-        self.zoom_label.setText(f"{self.zoom:.1f}×")
-        self.framing_hint.setText("Glissez l'image pour recadrer, molette pour zoomer." if manual
-                                  else "Le cadre suit le visage. Glisser l'image repasse en manuel.")
+        auto = self.auto_check.isChecked()
+        low, high, value = (AUTO_ZOOM_MIN, AUTO_ZOOM_MAX, self.auto_zoom) if auto else (1.0, MAX_ZOOM, self.zoom)
+        self.zoom_slider.blockSignals(True)
+        self.zoom_slider.setRange(int(low * 100), int(high * 100))
+        self.zoom_slider.setValue(int(value * 100))
+        self.zoom_slider.blockSignals(False)
+        self.zoom_label.setText(f"{value:.1f}×")
+        self.framing_hint.setText("Le cadre suit le visage. Molette pour serrer ou élargir, glisser pour cadrer à la main." if auto
+                                  else "Glissez l'image pour recadrer, molette pour zoomer.")
         self.quality_row.setVisible(self.format_combo.currentData() == "jpeg")
         self.custom_box.setVisible(self.preset_combo.currentData() == "custom")
 
@@ -436,14 +477,13 @@ class MainWindow(QMainWindow):
             self.last_detect = now
             small = image.scaledToWidth(min(480, w), Qt.TransformationMode.FastTransformation)
             if face := imaging.detect_face(qimage_to_rgb(small)):
-                s = w / small.width()
-                self.face = Rect(int(face.x * s), int(face.y * s), int(face.w * s), int(face.h * s))
+                self.face = face.scaled(w / small.width())
                 self.face_seen_at = now
         self.face_locked = auto and self.face is not None and now - self.face_seen_at < FACE_HOLD_S
 
         aspect = self.output_size().aspect
         if self.face_locked:
-            target = face_crop_rect(w, h, aspect, self.face)
+            target = face_crop_rect(w, h, aspect, self.face, self.auto_zoom)
             hint = "Visage détecté · cadrage automatique"
         else:
             target = crop_rect(w, h, aspect, self.zoom, (self.manual_center[0] * w, self.manual_center[1] * h))
@@ -470,18 +510,61 @@ class MainWindow(QMainWindow):
         full = crop_rect(w, h, self.output_size().aspect)
         self.zoom = min(MAX_ZOOM, max(1.0, full.h / crop.h))
         self.manual_center = (crop.center[0] / w, crop.center[1] / h)
-        self.zoom_slider.blockSignals(True)
-        self.zoom_slider.setValue(int(self.zoom * 100))
-        self.zoom_slider.blockSignals(False)
 
     def _on_wheel(self, notches: float) -> None:
-        if self.auto_check.isChecked():
-            return
-        self.zoom_slider.setValue(int(min(MAX_ZOOM, max(1.0, self.zoom * 1.08 ** notches)) * 100))
+        current = self.auto_zoom if self.auto_check.isChecked() else self.zoom
+        self.zoom_slider.setValue(int(round(current * 1.08 ** notches * 100)))  # the slider clamps to its range
 
     def _on_zoom_slider(self, value: int) -> None:
-        self.zoom = value / 100
-        self.zoom_label.setText(f"{self.zoom:.1f}×")
+        if self.auto_check.isChecked():
+            self.auto_zoom = value / 100
+        else:
+            self.zoom = value / 100
+        self.zoom_label.setText(f"{value / 100:.1f}×")
+
+    # ----------------------------------------------------------- background
+
+    def _background_colour(self) -> matting.Colour | None:
+        return {"white": matting.WHITE, "blue": matting.LIGHT_BLUE, "custom": self.custom_colour}.get(self.background)
+
+    def _on_background_chosen(self, key: str) -> None:
+        if key == "custom":
+            colour = QColorDialog.getColor(QColor(*self.custom_colour), self, "Couleur de l'arrière-plan")
+            if not colour.isValid():  # dialog cancelled: keep what was selected
+                self._apply_background(self.background)
+                return
+            self.custom_colour = (colour.red(), colour.green(), colour.blue())
+        self._apply_background(key)
+        if self.pending is not None:
+            self._show_review()
+
+    def _apply_background(self, key: str) -> None:
+        self.background = key
+        replaceable = matting.available()
+        for picker in (self.bg_picker, self.review.backgrounds):
+            picker.set_colours(matting.LIGHT_BLUE, self.custom_colour)
+            picker.set_replacement_enabled(replaceable)
+            picker.select(key)
+        self.keep_original_check.setEnabled(key != "original")
+        if not replaceable:
+            self.bg_hint.setText("Le remplacement du fond n'est pas disponible dans cette installation.")
+        elif key == "original":
+            self.bg_hint.setText("La photo garde son arrière-plan réel.")
+        else:
+            self.bg_hint.setText("Le fond est remplacé à la prise de vue. Un siège sans dossier haut donne le meilleur résultat.")
+
+    def _photo_for(self, capture: Capture):
+        """The final image for `capture` with the selected background."""
+        colour = self._background_colour()
+        if colour is not None:
+            try:
+                if capture.alpha is None:
+                    capture.alpha = matting.alpha_matte(capture.pixels)
+                return imaging.render(matting.composite(capture.pixels, capture.alpha, colour), capture.size)
+            except Exception as error:  # a broken install must not lose the photo
+                self._apply_background("original")
+                self.toast.show_text(f"Remplacement du fond impossible : {error}", "error")
+        return imaging.render(capture.pixels, capture.size)
 
     # --------------------------------------------------------------- output
 
@@ -614,18 +697,22 @@ class MainWindow(QMainWindow):
             crop = crop_rect(image.width(), image.height(), self.output_size().aspect)
         size = self.output_size()
         pixels = imaging.extract(qimage_to_rgb(image), crop)
-        photo = imaging.render(pixels, size)
-        report = imaging.assess(pixels, size)
+        capture = Capture(matricule, pixels, size, imaging.assess(pixels, size),
+                          self.face_locked if self.auto_check.isChecked() else None)
         self.view.flash()
         self.capturing = False
         if self.review_check.isChecked():
-            self.pending = (matricule, photo, size)
-            face = self.face_locked if self.auto_check.isChecked() else None
-            self.review.show_result(rgb_to_qimage(np.asarray(photo)), matricule, size, report, face)
-            QTimer.singleShot(180, lambda: self.stack.setCurrentIndex(REVIEW))
+            self.pending = capture
+            self._show_review()
+            QTimer.singleShot(180, lambda: self.pending is not None and self.stack.setCurrentIndex(REVIEW))
         else:
-            self._write(matricule, photo, size)
+            self._write(capture)
             self._set_busy(False)
+
+    def _show_review(self) -> None:
+        c = self.pending
+        photo = self._photo_for(c)
+        self.review.show_result(rgb_to_qimage(np.asarray(photo)), c.matricule, c.size, c.report, c.face_found)
 
     def _retake(self) -> None:
         self.pending = None
@@ -635,16 +722,20 @@ class MainWindow(QMainWindow):
     def _save_pending(self) -> None:
         if self.pending is None:
             return
-        matricule, photo, size = self.pending
-        if self._write(matricule, photo, size):
+        if self._write(self.pending):
             self.pending = None
             self._set_busy(False)
             self.stack.setCurrentIndex(LIVE)
 
-    def _write(self, matricule: str, photo, size: OutputSize) -> bool:
-        path = self._path_for(matricule)
+    def _write(self, capture: Capture) -> bool:
+        path = self._path_for(capture.matricule)
+        photo = self._photo_for(capture)
+        fmt, quality = self.format_combo.currentData(), self.quality_slider.value()
         try:
-            imaging.save(photo, path, self.format_combo.currentData(), size.dpi, self.quality_slider.value())
+            imaging.save(photo, path, fmt, capture.size.dpi, quality)
+            if self._background_colour() is not None and self.keep_original_check.isChecked():
+                original = imaging.render(capture.pixels, capture.size)
+                imaging.save(original, path.parent / ORIGINALS_DIR / path.name, fmt, capture.size.dpi, quality)
         except OSError as error:
             QMessageBox.critical(self, "Enregistrement impossible", f"La photo n'a pas pu être enregistrée dans\n{path}\n\n{error}")
             return False

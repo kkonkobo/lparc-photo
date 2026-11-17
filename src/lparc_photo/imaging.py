@@ -1,8 +1,8 @@
 """Framing, quality checks and saving. Pure functions on RGB numpy arrays."""
 
+import math
 import os
 import re
-import sys
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -44,22 +44,41 @@ def crop_rect(frame_w: int, frame_h: int, aspect: float, zoom: float = 1.0,
     return Rect(x, y, w, h)
 
 
-# The Haar face box spans roughly eyebrows to chin. ID-photo rules put the whole
-# head at ~70-80 % of the picture height, which works out to the box being about
-# half of it, with the box centre (the nose) slightly above the middle.
-FACE_TO_CROP_HEIGHT = 0.5
-FACE_CENTER_FROM_TOP = 0.5
+MODELS = Path(__file__).parent / "models"
 
 
-def face_crop_rect(frame_w: int, frame_h: int, aspect: float, face: Rect) -> Rect:
-    h = face.h / FACE_TO_CROP_HEIGHT
-    w = h * aspect
-    scale = min(1.0, frame_w / w, frame_h / h)
-    w, h = w * scale, h * scale
-    cx = face.x + face.w / 2
-    cy = face.y + face.h / 2 + (0.5 - FACE_CENTER_FROM_TOP) * h
+@dataclass(frozen=True)
+class Face:
+    """A detected face. `eyes` and `mouth` are the midpoints between the two eyes and the two mouth corners."""
+
+    box: Rect
+    eyes: tuple[float, float]
+    mouth: tuple[float, float]
+
+    @property
+    def eye_mouth(self) -> float:
+        return math.dist(self.eyes, self.mouth)
+
+    def scaled(self, s: float) -> "Face":
+        b = self.box
+        return Face(Rect(int(b.x * s), int(b.y * s), int(b.w * s), int(b.h * s)),
+                    (self.eyes[0] * s, self.eyes[1] * s), (self.mouth[0] * s, self.mouth[1] * s))
+
+
+# ID-photo framing, measured from the eyes and mouth because that distance barely changes with
+# hairstyle or head covering. Calibrated on a set of test portraits: the photo is about six times
+# the eye-to-mouth distance tall, which leaves room for large hair above and shoulders below.
+EYE_MOUTH_TO_HEIGHT = 0.165
+EYE_LINE_FROM_TOP = 0.47
+
+
+def face_crop_rect(frame_w: int, frame_h: int, aspect: float, face: Face, zoom: float = 1.0) -> Rect:
+    """Crop that frames `face` as an ID photo. `zoom` above 1 frames tighter, below 1 wider."""
+    h = face.eye_mouth / (EYE_MOUTH_TO_HEIGHT * zoom)
     full = crop_rect(frame_w, frame_h, aspect)
-    return crop_rect(frame_w, frame_h, aspect, zoom=full.h / h, center=(cx, cy))
+    h = min(h, full.h)
+    center = (face.eyes[0], face.eyes[1] + (0.5 - EYE_LINE_FROM_TOP) * h)
+    return crop_rect(frame_w, frame_h, aspect, zoom=full.h / h, center=center)
 
 
 def smooth_rect(prev: Rect | None, target: Rect, factor: float = 0.25) -> Rect:
@@ -71,37 +90,30 @@ def smooth_rect(prev: Rect | None, target: Rect, factor: float = 0.25) -> Rect:
     return Rect(lerp(prev.x, target.x), lerp(prev.y, target.y), lerp(prev.w, target.w), lerp(prev.h, target.h))
 
 
-def _cascade_path() -> str:
-    name = "haarcascade_frontalface_default.xml"
-    candidates = [os.path.join(cv2.data.haarcascades, name)]
-    if hasattr(sys, "_MEIPASS"):
-        candidates.append(os.path.join(sys._MEIPASS, "cv2", "data", name))
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-    raise FileNotFoundError(name)
-
-
 @cache
-def _cascade() -> cv2.CascadeClassifier:
-    return cv2.CascadeClassifier(_cascade_path())
+def _face_detector() -> cv2.FaceDetectorYN:
+    # Loaded from bytes, not a path: OpenCV cannot open files under non-ASCII Windows user folders.
+    model = np.frombuffer((MODELS / "yunet.onnx").read_bytes(), np.uint8)
+    return cv2.FaceDetectorYN.create("onnx", model, np.empty(0, np.uint8), (320, 320), 0.6, 0.3, 50)
 
 
-DETECT_WIDTH = 480
+DETECT_SIDE = 640
 
 
-def detect_face(rgb: np.ndarray) -> Rect | None:
-    """Largest frontal face, in full-frame coordinates."""
+def detect_face(rgb: np.ndarray) -> Face | None:
+    """Largest face in the frame, in full-frame coordinates."""
     h, w = rgb.shape[:2]
-    scale = DETECT_WIDTH / w if w > DETECT_WIDTH else 1.0
-    small = cv2.resize(rgb, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA) if scale < 1 else rgb
-    gray = cv2.equalizeHist(cv2.cvtColor(small, cv2.COLOR_RGB2GRAY))
-    min_side = max(40, int(min(gray.shape) * 0.15))
-    faces = _cascade().detectMultiScale(gray, scaleFactor=1.1, minNeighbors=6, minSize=(min_side, min_side))
-    if len(faces) == 0:
+    scale = min(1.0, DETECT_SIDE / max(w, h))
+    small = cv2.resize(rgb, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA) if scale < 1 else rgb
+    detector = _face_detector()
+    detector.setInputSize((small.shape[1], small.shape[0]))
+    _, faces = detector.detect(cv2.cvtColor(small, cv2.COLOR_RGB2BGR))
+    if faces is None or len(faces) == 0:
         return None
-    x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])
-    return Rect(int(x / scale), int(y / scale), int(fw / scale), int(fh / scale))
+    # x, y, w, h, right eye, left eye, nose, right mouth corner, left mouth corner, score
+    f = max(faces, key=lambda f: f[2] * f[3])[:14] / scale
+    return Face(Rect(int(f[0]), int(f[1]), int(f[2]), int(f[3])),
+                ((f[4] + f[6]) / 2, (f[5] + f[7]) / 2), ((f[10] + f[12]) / 2, (f[11] + f[13]) / 2))
 
 
 @dataclass(frozen=True)

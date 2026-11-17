@@ -8,8 +8,14 @@ ID photos from a webcam, saved as `<matricule>.jpg`. Version 2 is a rebuild of *
 1. Type the matricule and press **Entrée** (or click *Prendre la photo*).
 2. Check the photo, then **Entrée** to save or **Échap** to retake.
 
-The frame follows the face automatically. Turn off *Cadrage automatique* to frame by hand: drag the image to move
-the frame, scroll to zoom. Settings are remembered between sessions.
+The frame follows the face automatically and places it as on an ID photo; scroll to tighten or widen it. Turn off
+*Cadrage automatique* to frame by hand: drag the image to move the frame, scroll to zoom. Settings are remembered
+between sessions.
+
+Under *Arrière-plan*, or on the review screen, choose *Blanc*, *Bleu clair* or *Autre…* to replace the real
+background with a plain colour. *Conserver aussi l'original* keeps the untouched photo in an `originaux` subfolder.
+The cut-out is best with even light and a seat without a high back (a chair back behind the shoulders stays in the
+picture).
 
 Output size defaults to the V1.2 format (413 × 532 px, 35 × 45 mm at 300 dpi). Pick another preset or
 *Personnalisé…* to set any size in millimetres or pixels at any resolution, as JPEG or lossless PNG.
@@ -22,7 +28,8 @@ built-in webcam.
 | V1.2 | V2 |
 | --- | --- |
 | Camera's default resolution (often 640 × 480) | Best mode the camera offers, up to 2560 × 1440 |
-| Fixed crop from the top-left corner of the frame | Crop centred on the face, or framed by hand |
+| Fixed crop from the top-left corner of the frame | Framed on the face like an ID photo, or by hand |
+| Real background only | White, light blue or any plain colour, original kept on request |
 | Crop saved as-is, possibly shorter than 532 px | Always the exact output size, resampled with Lanczos, DPI written to the file |
 | JPEG at OpenCV's default quality 95 with 4:2:0 chroma | Adjustable quality, full 4:4:4 chroma, or PNG |
 | Saved to whatever the current folder is | Chosen folder, *~/Pictures/LPARC Photos* by default |
@@ -39,7 +46,12 @@ uv run lparc-photo                                    # run from source
 uv run pytest                                         # tests (no camera needed)
 uv run pyinstaller packaging/lparc_photo.spec --noconfirm   # build into dist/
 uv run python packaging/make_assets.py                # redraw icon and UI glyphs
+uv run lparc-photo --self-test tests/data/portrait.jpg report.json   # face + background check, no window
 ```
+
+Face detection (YuNet) and background removal (MODNet, run with ONNX Runtime) use the models in
+`src/lparc_photo/models/`; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The build pipeline runs the
+`--self-test` above on each packaged app, so a build that cannot find a face or replace a background fails.
 
 PyInstaller cannot cross-compile: each OS builds its own app. GitHub Actions (`.github/workflows/build.yml`)
 builds Windows, macOS Apple Silicon and macOS Intel on every push; the zips are under the run's *Artifacts*.
