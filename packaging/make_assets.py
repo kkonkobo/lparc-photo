@@ -60,7 +60,10 @@ def glyph(points: list[tuple[float, float]], size: int = 32, width: float = 3.2)
 
 def main() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
-    icon().save(ASSETS / "icon.png")
+    app_icon = icon()
+    app_icon.save(ASSETS / "icon.png")
+    # Windows installer icon; PyInstaller converts the PNG for the app itself.
+    app_icon.save(ASSETS / "icon.ico", sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)])
     glyph([(0.22, 0.52), (0.42, 0.72), (0.78, 0.3)]).save(ASSETS / "check.png")
     glyph([(0.28, 0.4), (0.5, 0.62), (0.72, 0.4)], width=2.6).save(ASSETS / "chevron.png")
     glyph([(0.28, 0.6), (0.5, 0.38), (0.72, 0.6)], width=2.6).save(ASSETS / "chevron-up.png")

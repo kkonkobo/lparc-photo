@@ -63,6 +63,7 @@ jobs:
           for path in windows mac mac-intel; do
             curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "http://127.0.0.1:8080/download/$path" | grep -q '^302 https://github.com/kkonkobo/lparc-photo/releases/latest/download/LPARC-Photo-'
           done
+          curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' http://127.0.0.1:8080/latest | grep -q '^302 https://github.com/kkonkobo/lparc-photo/releases/latest$'
           docker stop site
       - name: Request deployment
         env:

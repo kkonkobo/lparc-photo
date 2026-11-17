@@ -40,6 +40,7 @@ from .camera import Camera, qimage_to_rgb, rgb_to_qimage
 from .imaging import Face, QualityReport, Rect, crop_rect, face_crop_rect, matricule_error, smooth_rect
 from .presets import DEFAULT_PRESET, PRESETS, OutputSize, mm_to_px, preset_by_key, px_to_mm
 from .theme import stylesheet
+from .updates import SITE_URL, UpdateChecker
 from .widgets import BackgroundPicker, CameraView, MessageView, ReviewView, Toast
 
 ASSETS = Path(__file__).parent / "assets"
@@ -96,6 +97,7 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("LPARC", "LPARC Photo")
         self.camera = Camera(self)
         self.media = QMediaDevices(self)
+        self.updates = UpdateChecker(__version__, self)
 
         self.frame_size: tuple[int, int] | None = None
         self.crop: Rect | None = None
@@ -233,11 +235,24 @@ class MainWindow(QMainWindow):
         header.addStretch()
         header.addWidget(QLabel(f"v{__version__}", objectName="hint"))
 
+        self.update_text = QLabel(wordWrap=True)
+        update_button = QPushButton("Télécharger", objectName="primary")
+        update_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        update_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(SITE_URL)))
+        self.update_banner = QFrame(objectName="updateBanner")
+        banner = QHBoxLayout(self.update_banner)
+        banner.setContentsMargins(12, 10, 10, 10)
+        banner.addWidget(self.update_text, 1)
+        banner.addWidget(update_button)
+        self.update_banner.hide()
+        self.update_check = QCheckBox("Vérifier les mises à jour au démarrage")
+
         body = QWidget(objectName="sidebarBody")
         side = QVBoxLayout(body)
         side.setContentsMargins(18, 18, 18, 18)
         side.setSpacing(8)
         side.addLayout(header)
+        side.addWidget(self.update_banner)
         side.addSpacing(8)
         for title, widget in (("Photo", photo_card), ("Caméra", camera_card), ("Arrière-plan", background_card),
                               ("Format de sortie", output_card), ("Dossier d'enregistrement", folder_card)):
@@ -247,6 +262,9 @@ class MainWindow(QMainWindow):
         side.addWidget(section("Dernières photos"))
         side.addWidget(self.recent_empty)
         side.addWidget(self.recent)
+        side.addSpacing(6)
+        side.addWidget(section("Mises à jour"))
+        side.addWidget(self.update_check)
         side.addStretch()
         self.recent.hide()
 
@@ -282,6 +300,7 @@ class MainWindow(QMainWindow):
         saved_background = s.value("background", "original")
         self._apply_background(saved_background if saved_background in ("white", "blue", "custom") and matting.available() else "original")
         self.review_check.setChecked(s.value("review", True, bool))
+        self.update_check.setChecked(s.value("check_updates", True, bool))
         self.timer_combo.setCurrentIndex(max(0, self.timer_combo.findData(int(s.value("countdown", 0)))))
         self.format_combo.setCurrentIndex(max(0, self.format_combo.findData(s.value("format", "jpeg"))))
         self.quality_slider.setValue(int(s.value("quality", 95)))
@@ -309,6 +328,7 @@ class MainWindow(QMainWindow):
         s.setValue("background_custom", QColor(*self.custom_colour).name())
         s.setValue("keep_original", self.keep_original_check.isChecked())
         s.setValue("review", self.review_check.isChecked())
+        s.setValue("check_updates", self.update_check.isChecked())
         s.setValue("countdown", self.timer_combo.currentData())
         s.setValue("format", self.format_combo.currentData())
         s.setValue("quality", self.quality_slider.value())
@@ -333,6 +353,7 @@ class MainWindow(QMainWindow):
         self.view.wheeled.connect(self._on_wheel)
         self.review.accepted.connect(self._save_pending)
         self.review.rejected.connect(self._retake)
+        self.updates.available.connect(self._on_update_available)
         self.bg_picker.chosen.connect(self._on_background_chosen)
         self.review.backgrounds.chosen.connect(self._on_background_chosen)
         self.capture_btn.clicked.connect(self._capture_requested)
@@ -371,6 +392,8 @@ class MainWindow(QMainWindow):
 
     def start(self) -> None:
         """Called once the window is shown: ask for camera access where the OS requires it."""
+        if self.update_check.isChecked():
+            self.updates.check()
         app = QApplication.instance()
         permission = QCameraPermission()
         status = app.checkPermission(permission)
@@ -382,6 +405,10 @@ class MainWindow(QMainWindow):
         else:
             self._show_message("Autorisation de la caméra", "Autorisez l'accès à la caméra dans la fenêtre du système.")
             app.requestPermission(permission, self, self._on_permission)
+
+    def _on_update_available(self, version: str) -> None:
+        self.update_text.setText(f"La version {version} est disponible.")
+        self.update_banner.show()
 
     def _on_permission(self, permission) -> None:
         if QApplication.instance().checkPermission(permission) == Qt.PermissionStatus.Granted:

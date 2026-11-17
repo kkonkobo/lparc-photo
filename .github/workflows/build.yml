@@ -28,6 +28,8 @@ jobs:
             os: macos-15-intel
     env:
       QT_QPA_PLATFORM: offscreen
+      # The self-test also tries a real update request and reports what it got (informational).
+      LPARC_SELFTEST_UPDATE_URL: https://github.com/kkonkobo/lparc-photo/releases/latest
     steps:
       - uses: actions/checkout@v5
 
@@ -63,6 +65,51 @@ jobs:
           if (Test-Path selftest.json) { Get-Content selftest.json } else { Write-Host "no report written" }
           exit $p.ExitCode
 
+      - name: Build the Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --yes --no-progress }
+          $version = uv run python -c "import lparc_photo; print(lparc_photo.__version__)"
+          & $iscc "/DAppVersion=$version" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Move-Item "dist\LPARC-Photo-windows-x64-setup.exe" "LPARC-Photo-${{ matrix.name }}-setup.exe"
+
+      # Installs silently, runs the installed app's self-test, upgrades in place, then uninstalls.
+      - name: Test the Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = "LPARC-Photo-${{ matrix.name }}-setup.exe"
+          $app = Join-Path $env:LOCALAPPDATA "Programs\LPARC Photo"
+          $exe = Join-Path $app "LPARC Photo.exe"
+          function Install($log) {
+            $p = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/LOG=$log" -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Get-Content $log -Tail 40; throw "installer exited with $($p.ExitCode)" }
+          }
+          Install "install.log"
+          if (-not (Test-Path $exe)) { Get-Content install.log -Tail 40; throw "app not installed at $exe" }
+          $shortcut = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\LPARC Photo.lnk"
+          if (-not (Test-Path $shortcut)) { throw "Start-menu shortcut missing" }
+
+          $t = Start-Process $exe -WorkingDirectory $PWD -ArgumentList '--self-test', 'tests/data/portrait.jpg', 'selftest-installed.json' -Wait -PassThru
+          if (Test-Path selftest-installed.json) { Get-Content selftest-installed.json } else { Write-Host "no report written" }
+          if ($t.ExitCode -ne 0) { throw "installed app failed its self-test" }
+
+          # Upgrade in place: a leftover file from an "older version" must be gone afterwards.
+          Set-Content (Join-Path $app "_internal\stale-from-old-version.txt") "x"
+          Install "upgrade.log"
+          if (Test-Path (Join-Path $app "_internal\stale-from-old-version.txt")) { throw "upgrade left old files behind" }
+          $entries = @(Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | Where-Object { $_.GetValue("DisplayName") -eq "LPARC Photo" })
+          if ($entries.Count -ne 1) { throw "expected one installed entry after upgrading, found $($entries.Count)" }
+          Write-Host "installed version: $($entries[0].GetValue('DisplayVersion'))"
+
+          $u = Start-Process (Join-Path $app "unins000.exe") -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          if ($u.ExitCode -ne 0) { throw "uninstaller exited with $($u.ExitCode)" }
+          Start-Sleep -Seconds 3
+          if (Test-Path $exe) { throw "uninstall left the app behind" }
+
       - name: Package (macOS)
         if: runner.os == 'macOS'
         # ditto keeps the bundle's symlinks and ad-hoc signature intact; plain zip breaks them.
@@ -76,7 +123,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: LPARC-Photo-${{ matrix.name }}
-          path: LPARC-Photo-${{ matrix.name }}.zip
+          path: |
+            LPARC-Photo-${{ matrix.name }}.zip
+            LPARC-Photo-${{ matrix.name }}-setup.exe
           if-no-files-found: error
 
   release:
@@ -91,5 +140,7 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          files: LPARC-Photo-*.zip
+          files: |
+            LPARC-Photo-*.zip
+            LPARC-Photo-*-setup.exe
           generate_release_notes: true

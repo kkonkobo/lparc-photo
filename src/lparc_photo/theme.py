@@ -18,6 +18,8 @@ QScrollArea { background: transparent; border: none; }
 #error { color: #f87171; font-size: 12px; }
 #warning { color: #fbbf24; font-size: 12px; }
 #card { background: #1b1f25; border: 1px solid #262b33; border-radius: 10px; }
+#updateBanner { background: #16263f; border: 1px solid #2c4a7c; border-radius: 10px; }
+#updateBanner QLabel { font-weight: 600; }
 
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
     background: #0f1115; border: 1px solid #2d333c; border-radius: 7px;
