@@ -18,6 +18,19 @@ QScrollArea { background: transparent; border: none; }
 #error { color: #f87171; font-size: 12px; }
 #warning { color: #fbbf24; font-size: 12px; }
 #card { background: #1b1f25; border: 1px solid #262b33; border-radius: 10px; }
+QDialog { background: #15181d; }
+#dialogSummary { font-size: 14px; font-weight: 600; }
+#convertPreview { background: #0b0c0f; border: 1px solid #262b33; border-radius: 8px; color: #6b7280; }
+QTableWidget { background: #0f1115; alternate-background-color: #13161b; border: 1px solid #262b33; border-radius: 8px;
+    gridline-color: transparent; selection-background-color: #22304a; selection-color: white; }
+QTableWidget::item { padding: 4px 6px; }
+QTableWidget::indicator { width: 16px; height: 16px; border-radius: 4px; border: 1px solid #3a414c; background: #0f1115; }
+QTableWidget::indicator:checked { background: #4f8cff; border-color: #4f8cff; image: url(@ASSETS/check.png); }
+QHeaderView::section { background: #1b1f25; color: #9aa0a6; border: none; border-bottom: 1px solid #262b33; padding: 6px; font-weight: 600; }
+QRadioButton { spacing: 6px; }
+QRadioButton::indicator { width: 14px; height: 14px; border-radius: 8px; border: 1px solid #3a414c; background: #0f1115; }
+QRadioButton::indicator:checked { border: 4px solid #4f8cff; background: white; }
+QProgressDialog QLabel { min-width: 320px; }
 #updateBanner { background: #16263f; border: 1px solid #2c4a7c; border-radius: 10px; }
 #updateBanner QLabel { font-weight: 600; }
 
