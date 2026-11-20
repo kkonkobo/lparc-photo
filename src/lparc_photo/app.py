@@ -217,7 +217,10 @@ class MainWindow(QMainWindow):
         open_ = QPushButton("Ouvrir", objectName="secondary")
         change.clicked.connect(self._choose_folder)
         open_.clicked.connect(self._open_folder)
-        folder_card = card(self.folder_label, row(change, open_))
+        convert_btn = QPushButton("Convertir des photos JPEG ↔ PNG…", objectName="secondary")
+        convert_btn.setToolTip("Retrouver les photos d'un dossier et les convertir d'un format à l'autre")
+        convert_btn.clicked.connect(self._open_converter)
+        folder_card = card(self.folder_label, row(change, open_), convert_btn)
 
         # Recent
         self.recent = QListWidget()
@@ -644,6 +647,13 @@ class MainWindow(QMainWindow):
         if folder:
             self.output_dir = Path(folder)
             self._refresh_folder_label()
+
+    def _open_converter(self) -> None:
+        from .convert_dialog import ConvertDialog
+
+        folder = self.output_dir if self.output_dir.is_dir() else Path.home()
+        dialog = ConvertDialog(folder, self.format_combo.currentData(), self.quality_slider.value(), self)
+        dialog.exec()
 
     def _open_folder(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)

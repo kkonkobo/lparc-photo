@@ -12,6 +12,11 @@ The frame follows the face automatically and places it as on an ID photo; scroll
 *Cadrage automatique* to frame by hand: drag the image to move the frame, scroll to zoom. Settings are remembered
 between sessions.
 
+*Convertir des photos JPEG ↔ PNG…* (under *Dossier d'enregistrement*) lists every JPEG and PNG in a folder, read
+by content rather than name, so a PNG saved as `123.jpg` is caught. It preselects what is not yet in the chosen format;
+convert the selection in one go. Originals go to an `avant-conversion` subfolder (or the trash), DPI is kept,
+transparency becomes white in JPEG, and an existing file of the same name is never overwritten unless asked.
+
 Under *Arrière-plan*, or on the review screen, choose *Blanc*, *Bleu clair* or *Autre…* to replace the real
 background with a plain colour. *Conserver aussi l'original* keeps the untouched photo in an `originaux` subfolder.
 The cut-out is best with even light and a seat without a high back (a chair back behind the shoulders stays in the

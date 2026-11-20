@@ -1,6 +1,6 @@
 [project]
 name = "lparc-photo"
-version = "2.2.0"
+version = "2.3.0"
 description = "ID photos from a webcam, named by matricule"
 readme = "README.md"
 authors = [
